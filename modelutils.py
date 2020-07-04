@@ -157,21 +157,23 @@ def draw_campus(agent_locations,disease_states,ax,background_map = plt.imread('c
         ax.plot(xx[pal//gridlen,pal%gridlen],yy[pal//gridlen,pal%gridlen],color=color,alpha=alpha,marker='*',markersize=10,markeredgecolor='black')
 
            
-def loc_tmat(homeloc,totallocs):
+def loc_tmat(homeloc,totallocs,ff=100):
     """
     generates a right stochastic matrix (transition matrix)
     homeloc is the location the person "hovers" at and returns to. totallocs is the number of locations open to the agents
+    ff is a fudge factor
+    
     returns a matrix totallocs x totallocs
     """
 
     #adding 1 to diagonals off the bat to bias staying at a location
-    returnmat = np.eye(totallocs)*100
+    returnmat = np.eye(totallocs)*ff
 
     #adding a small amount to represent transitions between locations. We're sampling from a half normal.
     returnmat+= np.reshape(np.abs(st.norm.rvs(size=[totallocs*totallocs],scale=0.1)),[totallocs,totallocs])
 
-    returnmat[:,homeloc]+= 25 #biasing movement towards home location
-    returnmat[homeloc,homeloc]+= 25 #making sure we stay in home location if we get there
+    returnmat[:,homeloc]+= ff #biasing movement towards home location
+    returnmat[homeloc,homeloc]+= ff #making sure we stay in home location if we get there
     returnmat = returnmat / returnmat.sum(axis=1)[:,None]  #normalization
 
     return returnmat
@@ -197,10 +199,14 @@ def gen_initstate(statefreqs=[0.4,0.3,0.2]+6*[0.1/6]+[0,0],N=10):
     returns an 11xN sparse matrix describing the state of each individual (by columns)
     """
     returnmat=[] #we're going to stack by columns, then shuffle
-    for people_idx in range(N):
+    people_in_state = [N*x for x in statefreqs]
+    for people_idx in range(len(statefreqs)):
         append_mat = np.zeros(shape=11)
-        append_mat[np.random.choice(np.arange(11),p=statefreqs)]=1
-        returnmat.append(append_mat)
+        append_mat[people_idx]=1
+        
+        #append_mat[np.random.choice(np.arange(11),p=statefreqs)]=1
+        for _ in range(int(people_in_state[people_idx])):
+            returnmat.append(append_mat)
     random.shuffle(returnmat)
     return np.hstack([np.expand_dims(x,axis=-1) for x in returnmat])     
          
@@ -219,14 +225,14 @@ def state_tmat(pse=0.0000001):
     outarray[2,:] = [0,0.1*(1-pse),0.9*(1-pse),0,0,pse,0,0,0,0,0]
     
     
-    outarray[3,:] = [0,0,0,1-(1/1440),0,0,0.94*(1/1440),0.05*(1/1440),0.01*(1/1440),0,0]
+    outarray[3,:] = [0,0,0,1-(1/5),0,0,0.94*(1/5),0.05*(1/5),0.01*(1/5),0,0]
     
-    outarray[4,:] = [0,0,0,0,1-(1/1440),0,0,0.9*(1/1440),0.1*(1/1440),0,0]
-    outarray[5,:] = [0,0,0,0,0,1-(1/1440),0,0,1/1440,0,0]
-    outarray[6,:] = [0,0,0,0,0,0,0.9*(1-1/2592),0.1*(1-1/2592),0,1/2592,0]
-    outarray[7,:] = [0,0,0,0,0,0,0,0.9*(1-1/2592),0.1*(1-1/2592),1/2592,0]
+    outarray[4,:] = [0,0,0,0,1-(1/5),0,0,0.9*(1/5),0.1*(1/5),0,0]
+    outarray[5,:] = [0,0,0,0,0,1-(1/5),0,0,1/5,0,0]
+    outarray[6,:] = [0,0,0,0,0,0,0.9*(1-1/9),0.1*(1-1/9),0,1/9,0]
+    outarray[7,:] = [0,0,0,0,0,0,0,0.9*(1-1/9),0.1*(1-1/9),1/9,0]
     
-    outarray[8,:] = [0,0,0,0,0,0,0,0,1-1/2592,0.95*(1/2592),0.05*(1/2592)]
+    outarray[8,:] = [0,0,0,0,0,0,0,0,1-1/9,0.95*(1/9),0.05*(1/9)]
     #outarray = outarray / outarray.sum(axis=1)[:,None]  #just in case my math sucks, normalize the rows to 1. THIS MIGHT BE FUCKING THINGS UP!!!!!!!!!!!!!!
     return outarray        
         
@@ -234,7 +240,7 @@ def state_tmat(pse=0.0000001):
 # Helper Functions for Simulation
 #################################
 
-def move_agent(current_time,prev_idx,current_idx,person_idx,locations,agent_locations,agent_loctmats,lunchtimes):
+def move_agent(current_time,prev_idx,current_idx,person_idx,locations,agent_locations,agent_loctmats,lunchtimes,lunchloc='Chandler'):
     """
     # Inputs: lunchtimes; a 2-list containing start and end times for lunches, 
     current_time; a counter for number of intervals since start of day,
@@ -251,8 +257,8 @@ def move_agent(current_time,prev_idx,current_idx,person_idx,locations,agent_loca
     #first we check lunchtime conditions,check if any lunchtimes have started or if we're in the middle of a lunch period
     if lunchtimes[1][0][person_idx]>=current_time and current_time>= lunchtimes[0][0][person_idx]:
         if agent_locations_out[prev_idx,person_idx] != 'Quarantine':
-            agent_locations_out[current_idx,person_idx] = 'Chandler' #force that person to go to Chandler within their planned lunch period
-            current_location = 'Chandler'
+            agent_locations_out[current_idx,person_idx] = lunchloc #force that person to go to Chandler within their planned lunch period
+            current_location = lunchloc
         else:
             agent_locations_out[current_idx,person_idx] = 'Quarantine'
             current_location = 'Quarantine'
@@ -389,7 +395,7 @@ def run_simulation(ndays,npeople,locations,loc_weights=None,init_locations=None,
         loc_weights = st.uniform.rvs(size=len(locations))
     
     # instantiating arrays to hold location and state
-    agent_locations = np.empty(shape=[96*ndays,npeople],dtype=object)
+    agent_locations = np.empty(shape=[96*(ndays-1),npeople],dtype=object)
     agent_states = np.zeros(shape=[ndays,11,npeople])
     
     if init_locations==None:
@@ -420,14 +426,14 @@ def run_simulation(ndays,npeople,locations,loc_weights=None,init_locations=None,
     prev_idx=0
     current_idx = 0
     for day_idx in tqdm(range(1,ndays),desc='Running Simulation'):  #loop over days
-        print('Day: ',day_idx,'/',ndays,end='\r')
+        #print('Day: ',day_idx,'/',ndays,end='\r')
         
         if lunchtimes==None:  #if lunchtimes change everyday, write them in
             lunchtimes = get_lunchtimes(npeople=npeople)
         current_time=0
 
         #start the day in a random location
-        agent_locations[day_idx*96,:] = np.random.choice(locations[:-1],size=npeople)
+        agent_locations[(day_idx-1)*96,:] = np.random.choice(locations[:-1],size=npeople)
 
 #         if day_idx!=0:
 #             agent_states[day_idx,:] = agent_states[prev_idx,:] #carrying over the state isn't valid if it's day 0
@@ -470,7 +476,7 @@ def run_simulation(ndays,npeople,locations,loc_weights=None,init_locations=None,
         
         for time_idx in range(1,96): #loop over small time interval (now 5 minutes.)
             #so I don't have to calculate this value a ton of times
-            current_idx = day_idx*96+time_idx
+            current_idx = (day_idx-1)*96+time_idx
 
             for person_idx in range(npeople):  #first move everyone to their respective locations
                 current_location,agent_locations = move_agent(current_time,prev_idx,current_idx,person_idx,locations,agent_locations,agent_loctmats,lunchtimes)
@@ -520,12 +526,186 @@ def run_simulation(ndays,npeople,locations,loc_weights=None,init_locations=None,
         ######################################
     return agent_locations,agent_states
             
-
-def forecast(ntrials,prev_locations,locations,init_state,loc_weights,known_indices=[]):
+    
+    
+def dorm_simulation(ndays,loc_weights=None,init_states=None,lunchtimes=None,testsperday=0,testdelay=2,testingpolicy='Random',quarantinelen=14,lambda_=1e9,loctmats=None,lunchloc='Chandler'):
+    """
+    Runs CoViD main simulation
+    
+    Inputs:
+    ndays is an int describing the number of days to run the simulation
+    npeople is an int describing the number of people to model
+    locations is a list of strings containing the names of the locations
+    loc_weights is a vector the same length as locations to tune exposure by location (assumed [0,1])
+    init_locations is an array npeople long describing the initial location of each agent
+    init_states is an array [11,npeople] that describes the state of every person at the begining of the simulation
+    testsperday is an int describing the number of diagnostic tests to run per day
+    testdelay is the number of days to wait until getting test results
+    testingpolicy is the policy to take when selecting people for tests
+    quarantinelen is an int describing the number of days to quarantine a person
+    
+    
+    Outputs:
+    agent_locations is an array [timesteps,npeople] describing the location of each person at each timestep
+    agent_states is an array [timesteps,11,npeople] describing the state of each person in a one-hot fashion
     """
     
-    RIGHT NOW, I ASSUME NO TESTING OCCURS
+    # a really hacky way to retrieve test/quarantine results. counter floors at 0 so i can't specify to check indices equal to zero; ill pick up everybody. instead, we add one day to the test delay and check all indices equal to 1
+    testdelay+=1
+    quarantinelen+=1
+    locations = ['Bechtel','Lloyd','Page','Ruddock','Chandler']
+    homelocs = 150*['Bechtel']+50*['Lloyd']+50*['Page']+50*['Ruddock']
+    npeople=300
+    #if loc_weights==None:
+        #instantiating weight matrices for locations
+        #loc_weights = st.uniform.rvs(size=len(locations))
+    loc_weights = np.ones(len(locations))
+        
+    # instantiating arrays to hold location and state
+    agent_locations = np.empty(shape=[96*(ndays-1),npeople],dtype=object)
+    agent_states = np.zeros(shape=[ndays,11,npeople])
     
+
+    agent_locations[0,:] = homelocs
+    
+#     if init_states==None:
+#         agent_states[0,...] = gen_initstate(N=npeople)
+#     else:
+#         agent_states[0,...] = init_states
+    agent_states[0,...] = gen_initstate(N=npeople)
+    #generate transition matrices
+    agent_loctmats = [loc_tmat(locations.index(x),len(locations)-1) for x in homelocs]
+    
+    #guarantee at least 1 person w/ covid is in the simulation
+    if np.sum(agent_states[0,...])==0:
+        agent_states[0,-3,-1] = 1 #make the last person (very) sick if no one else is
+    
+    
+    #main simulation loop
+    quarantine_list=[]  #a list to hold indices of people in quarantine
+    quarantine_counter = np.zeros(shape=npeople)  #a counter to hold days since begining of quarantine
+    test_counter = np.zeros(shape=npeople) #a counter to hold days since diagnostic test is run
+    test_blacklist = []
+    testarray = np.zeros([11,npeople])  # a vector holding the state of tested people
+    
+    prev_idx=0
+    current_idx = 0
+    for day_idx in tqdm(range(1,ndays),desc='Running Simulation'):  #loop over days
+        print('Day: ',day_idx,'/',ndays,end='\r')
+        
+        if lunchtimes==None:  #if lunchtimes change everyday, write them in
+            lunchtimes = get_lunchtimes(npeople=npeople)
+        current_time=0
+
+        #start the day in a random location
+        agent_locations[(day_idx-1)*96,:] = np.random.choice(locations[:-1],size=npeople)
+
+#         if day_idx!=0:
+#             agent_states[day_idx,:] = agent_states[prev_idx,:] #carrying over the state isn't valid if it's day 0
+        cum_exposure = np.zeros(npeople)
+        
+        
+        
+        #####################################
+        # Quarantine Step
+        #####################################
+        
+        #first, we decrement the testing counter
+        #test_counter = np.maximum(np.zeros(npeople),test_counter-1)
+        
+        #then we retrieve any tests that are ready
+        #result_indices = np.where(test_counter==1)[0]
+        
+        #anyone who is found to be positive has their location changed to quarantine
+        #result_states = [np.where(testarray[:,x]==1)[0][0] for x in result_indices]
+        pos_indices=[]
+        
+        for person_idx in range(agent_states.shape[0]):
+            index = np.where(agent_states[day_idx-1,:,person_idx]==1)[0]  #index of the 1 in the one hot
+            if index in [2,5,8]:  #if person is exhibiting strong symptoms
+                pos_indices.append(person_idx)
+        #for test_idx in range(result_indices.size):
+        #    if result_states[test_idx] in [3,4,5,6,7,9]:  #assuming we can catch all exposed and infected people
+        #        pos_indices.append(result_indices[test_idx])
+        
+        #_=[test_blacklist.remove(x) for x in result_indices]  #take everyone off the blacklist that just got their test results
+        #test_blacklist+=pos_indices  #but add the people we found that were positive, no sense testing them again
+        
+        
+        for pos_idx in pos_indices:
+                quarantine_counter[pos_idx]+= quarantinelen
+                agent_locations[current_idx,pos_idx] = 'Quarantine'
+                
+        #now we need to remove people from quarantine whose time is up
+        q_out = np.where(quarantine_counter==1)[0]
+        for q_idx in q_out:
+            agent_locations[current_idx,q_idx] = np.random.choice(locations[:-1])
+        
+        ###################################
+        # End Quarantine Step
+        ###################################
+        
+        for time_idx in range(1,96): #loop over small time interval (now 5 minutes.)
+            #so I don't have to calculate this value a ton of times
+            current_idx = (day_idx-1)*96+time_idx
+
+            for person_idx in range(npeople):  #first move everyone to their respective locations
+                if lunchloc!='Chandler':
+                    current_location,agent_locations = move_agent(current_time,prev_idx,current_idx,person_idx,locations,agent_locations,agent_loctmats,lunchtimes,lunchloc=homelocs[person_idx])
+                elif lunchloc=='Chandler':
+                    current_location,agent_locations = move_agent(current_time,prev_idx,current_idx,person_idx,locations,agent_locations,agent_loctmats,lunchtimes,lunchloc='Chandler')
+                
+            for person_idx in range(npeople):  #then write in the cumulative exposure
+                current_location = agent_locations[current_idx,person_idx]
+                
+                if current_location != 'Quarantine':
+                    loc_indices = np.where(agent_locations[current_idx,:]==current_location)[0]
+                    infect_list = [np.sum(agent_states[day_idx-1,6:9,x]) for x in loc_indices]
+                    ninfected = np.sum(infect_list)
+                    cum_exposure[person_idx] += loc_weights[locations.index(current_location)]*ninfected
+                elif current_location == 'Quarantine':
+                    cum_exposure[person_idx]+= 0. #replace 0 with community exposure rate
+              
+            
+            
+            prev_idx = current_idx
+            current_time+=1
+        
+        for person_idx in range(npeople):
+            agent_states = cum_transmission(cum_exposure,agent_states,day_idx,person_idx,lambda_=lambda_)
+#         ######################################
+#         # Testing Step
+#         ######################################
+#         if testsperday>=0:
+            
+#             if testingpolicy=='Random':
+#                 validindices = [x for x in np.arange(npeople) if x not in test_blacklist]
+                
+#                 #policy only really changes this line
+#                 people_to_test = list(np.random.choice(validindices,size=min([testsperday,len(validindices)]),replace=False))  #we're picking people, replacement would make no sense
+                
+#                 test_blacklist+=people_to_test  #if someone's waiting for their results, don't test them again
+#                 test_counter[people_to_test] += testdelay  #  start the counter
+#                 for person_idx in people_to_test:
+#                     #print(agent_states[current_idx,:,person_idx])
+#                     #print('one-hot indices',np.where(agent_states[day_idx,:,person_idx]==1)[0])
+#                     state_idx = min([np.where(agent_states[day_idx,:,person_idx]==1)[0],10])
+#                     testarray[:,person_idx]=0 #clear the column just in case it isn't already clear
+#                     testarray[state_idx,person_idx]=1  #record the state at this time, but don't look until the counter fully decrements
+                    
+#         quarantine_counter = np.maximum(np.zeros(npeople),quarantine_counter-1)  #decrement the quarantine counter
+        
+        ######################################
+        # End Testing Step
+        ######################################
+    return agent_locations,agent_states
+    
+    
+    
+    
+
+def forecast(ntrials,prev_locations,locations,init_state,loc_weights,known_indices=[]):
+    """ 
     Inputs:
     ntrials is an int describing how many monte carlo trials to run. works well with 100 right now. might need to tweak based on number of people in simulation
     prev_locations is an [96,npeople] array describing the locations of each person during the forecast period
