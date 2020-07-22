@@ -14,11 +14,11 @@ Simulations are "run" on the Caltech campus with different locations being repre
 
 To determine whether it's better for students to eat lunch in their dorms vs Chandler, a full simulation with 300 people was run over a 14 day period. It was assumed 150 students are assigned to Bechtel house and 50 students are assigned to each of the North houses. Running the simulation with these many people is computationally expensive, so confidence intervals were drawn using only 10 trials (execution time ~ 4 hours).
 
-![Lunch Demo](chandler_simulation_FINAL4_BIG.png)
+![Lunch Demo](chandler_simulation_FINAL5.png)
 
 It's a little hard to see the difference between the two policies so I've plotted the differences between the two policies with bootstrapped confidence intervals below
 
-![Lunch Policy Differences](chandler_policy_difference_BIG1.png)
+![Lunch Policy Differences](chandler_policy_difference.png)
 
 It's still a small difference, but you can expect to infect 5% less people (over a 14 day period) if you shut down Chandler and force students to eat in their dorms.
 
@@ -36,7 +36,7 @@ There's a couple directions we could go at this point.
 <br>
 <br>
 
-### 1. Make the model more usable (build a website), rework visualizations (Money: Free, Time: ~3 weeks)
+### 1. Make the model more usable (build a website), rework visualizations
 
 Right now, all visualizations are done in a JuPytR notebook with static plots being generated (and coded) by hand. I could rework the visualization code to make it interactive and output to a website. The thing I have in mind is something like this CoViD "dashboard" built by JHU.
 
@@ -50,7 +50,7 @@ The website can be easily built using the azle.js framework and embedding graphs
 <br>
 <br>
 
-### 2. Calculating an "optimal" testing policy via Machine Learning (Reinforcement Learning) algorithms (Money: ~$100 [for AWS compute time], Time: Longer...hopefully in time for my next GM)
+### 2. Calculating an "optimal" testing policy via Machine Learning (Reinforcement Learning) algorithms
 
 The greedy testing policy outlined above is probably not the best choice. There's very little justification that goes behind it besides "testing the people most likely to be infected."
 
