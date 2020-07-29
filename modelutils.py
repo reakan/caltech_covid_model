@@ -870,7 +870,7 @@ def forecast(ntrials,prev_locations,locations,init_state,loc_weights,known_indic
     returnarray = np.zeros(shape=[11,prev_locations.shape[-1]])
     
     for mc_idx in tqdm(range(ntrials)):
-        print('Forecasting...MC Trial: ',mc_idx,'/',ntrials,end='\r')
+        #print('Forecasting...MC Trial: ',mc_idx,'/',ntrials,end='\r')
         
         # instantiating arrays to hold location and state
         agent_states_forecast = np.zeros(shape=[2,11,prev_locations.shape[-1]])
@@ -887,7 +887,7 @@ def forecast(ntrials,prev_locations,locations,init_state,loc_weights,known_indic
                 current_location = prev_locations[time_idx,person_idx] 
                 if current_location != 'Quarantine':
                     loc_indices = np.where(prev_locations[time_idx,:]==current_location)[0]
-                    infect_list = [np.sum(agent_states_forecast[0,6:9,x]) for x in loc_indices]
+                    infect_list = [np.sum(agent_states_forecast[0,3:9,x]) for x in loc_indices]
                     ninfected = np.sum(infect_list)
                     cum_exposure[person_idx] += ninfected*loc_weights[locations.index(current_location)]
                 elif current_location == 'Quarantine':

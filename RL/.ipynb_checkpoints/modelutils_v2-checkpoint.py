@@ -15,7 +15,7 @@ Helper Functions for CoViD model.
 
 UPDATED v2; slightly more elegant implementation, made for easy integration w/ tensorflow and d3. Use older version to manually test 'exotic' policies.
 
-Updated 07/20/2020
+Updated 07/27/2020
 
 """
         
@@ -276,11 +276,20 @@ def plot_percentiles(percentiles,tseries_list,ax=None):
 
 class state:
     
-    def __init__(self,home_locations,lambda_=1e-2):
+    def __init__(self,home_locations,lambda_=5e-3,ff=None,quarantine=True):
         """
         instantiates a state object. home_locations is an nlocations x npeople matrix describing the location that each person hangs around. we assume everyone eats lunch at chandler.
         
         """
+        
+        #instantiate all class attributes
+        
+        if type(ff)==list:
+            self.ff = ff
+        else:
+            self.ff = home_locations.shape[-1]*[100]
+        
+        self.quarantine = quarantine #boolean describing whether or not we're quarantining kids (CHANGE TO QUARANTINELEN)
         self.lambda_ = lambda_
         self.npeople = home_locations.shape[-1]
         
@@ -295,13 +304,16 @@ class state:
         self.disease_states = gen_initstate(N=home_locations.shape[-1])
         
         #instantiate a list holding transition matrices for location Markov Chain
-        self.loc_tmats = [loc_tmat(np.where(home_locations[:,x]==1)[0],home_locations.shape[0]) for x in range(home_locations.shape[-1])]
+        self.loc_tmats = [loc_tmat(np.where(home_locations[:,x]==1)[0],home_locations.shape[0],self.ff[x]) for x in range(home_locations.shape[-1])]
         
         #instantiate a location tensor; purely a placeholder when instantiated for the first time. 96 x nlocations x npeople
-        self.locations = np.zeros([96,home_locations.shape[1]+2,home_locations.shape[-1]])  #adding two "columns" for Chandler and Quarantine.
+        self.locations = np.zeros([96,home_locations.shape[0]+2,home_locations.shape[-1]])  #adding two "columns" for Chandler and Quarantine.
+        self.locations = self.move_agents() #instantiate a list of visited locations for each agent
+        
         #finally, instantiate an action vector to hold indices of individuals for whom we know the disease state
         self.action = np.zeros(shape=self.npeople)
-        
+    
+    #onto the methods....
     def move_agents(self):
         """
         generates a new location matrix based on loc_tmats,quarantine_counter,
@@ -320,7 +332,7 @@ class state:
         for time_idx in range(1,96):
             for person_idx in range(self.npeople):
                 locmat = self.loc_tmats[person_idx]
-                returnmat[time_idx,np.random.choice(np.arange(self.home_locations.shape[1]),p=np.squeeze(locmat[np.where(returnmat[time_idx-1,:,person_idx]==1)[0],:])),person_idx]=1.
+                returnmat[time_idx,np.random.choice(np.arange(self.home_locations.shape[0]),p=np.squeeze(locmat[np.where(returnmat[time_idx-1,:,person_idx]==1)[0],:])),person_idx]=1.
         
         #write lunch into the returnmatrix
         for x in range(len(lunchtimes[0][0])):
@@ -356,16 +368,18 @@ class state:
                 returnvec[person_idx]+= len([x for x in people_at_location if x in infected_people])
                 
             #in case the person is in quarantine, set their exposure to 0
-            if current_location==self.locations.shape[1]-1:
+            if current_location==self.locations.shape[1]-1 or self.quarantine_counter[person_idx]>0 and self.quarantine:  #second condition is a failsafe; i'm checking if the quarantining procedure works.
                 returnvec[person_idx] = 0
         return returnvec
     
     def update_disease_state(self):
         """
         updates disease state; REQUIRES CALCULATED EXPOSURES
+        returns disease_states at t+1
         """
         returnmat = np.zeros([11,self.npeople])
-        pse = 1.-np.exp(-self.lambda_*self.exposures)
+
+        pse = [1. for _ in range(self.npeople)]-np.exp(self.lambda_*(-self.exposures))
         
         for person_idx in range(self.npeople):
             tmat = state_tmat(pse[person_idx])
@@ -381,7 +395,7 @@ class state:
         #instantiate output object
         output_state = state(self.home_locations)
         self.action = action  #write in the action vector to reflect disease_states we know
-        
+        output_state.lambda_=self.lambda_
         
         #record the action in test_counter
         self.test_counter+=action
@@ -390,7 +404,7 @@ class state:
         #look at results of test
         test_indices = np.where(action==1)[0]
         for test_idx in test_indices:
-            if np.sum(self.disease_states[3:9,test_idx])>0:  #check if the person is infected or exposed
+            if np.sum(self.disease_states[3:9,test_idx])>0 and self.quarantine:  #check if the person is infected or exposed
                 self.quarantine_counter[test_idx]+=15. #it's 15 because we're going to subtract one at the end
         self.locations = self.move_agents()
         
@@ -405,34 +419,153 @@ class state:
         
         return output_state
     
-    def forecast(self,ntrials=10):
+    def forecast(self,ntrials=1000):
         """
         requires that action and locations already be defined
         """
         returnmat = np.zeros(shape=[11,self.npeople])
-        #sample an initial disease_state from partially-observable disease state
         
+        obs_state = self.get_observable_state()
         #create a new state
         for trial_idx in range(ntrials):
-            temp_state = state(self.home_locations)
+            print('Forecasting trial: ',trial_idx,'/',ntrials,end='\r')
+            #sample an initial disease_state from partially-observable disease state
+            sampled_state = np.zeros([11,self.npeople])
+            for person_idx in range(self.npeople):
+                sampled_state[np.random.choice(np.where(obs_state[:,person_idx]==1)[0]),person_idx]=1.
+            
+            
+            #instantiate new state instance so we don't screw this one up.
+            temp_state = state(self.home_locations,lambda_=self.lambda_,ff=self.ff,quarantine=self.quarantine)
             temp_state.locations = self.locations  #write in the locations as they're already known
             temp_state.disease_states = sampled_state
-            temp_state.get_exposures()
+            temp_state.exposures = temp_state.get_exposures()
             returnmat+=temp_state.update_disease_state()
         
+        return returnmat/ntrials
+    
+    ####################
+    
+    def forecast_v2(self,ntrials=1000):
+        """
+        returns a 2 list 
+        first item in list is a list of partially-filled disease_state transition matrices.
+        second item in list is the actual disease_state transition matrices
+        """
+        returnlist =  [np.zeros([11,11]) for _ in range(self.npeople)]
+        
+        obs_state = self.get_observable_state()
+        sampled_state_history = np.zeros(obs_state.shape)
+        
+        for mc_idx in range(ntrials):
+            print('Trial ',mc_idx,'/',ntrials-1,end='\r')
+            #first, we need to sample initial states for each individual based on their symptom status and possible test results
+            sampled_state = np.zeros([11,self.npeople])
+            
+            for person_idx in range(self.npeople):
+                state_choice = np.random.choice(np.where(obs_state[:,person_idx]==1)[0])
+                sampled_state[state_choice,person_idx]=1.
+                sampled_state_history[state_choice,person_idx]+=1.
+
+            #instantiate new state instance so we don't screw this one up.
+            temp_state = state(self.home_locations,lambda_=self.lambda_,ff=self.ff,quarantine=self.quarantine)
+            temp_state.locations = np.copy(self.locations)  #write in the locations as they're already known
+            temp_state.disease_states = np.copy(sampled_state)
+            temp_state.exposures = temp_state.get_exposures()
+            next_state=temp_state.update_disease_state()
+            
+            #now we need to write in the tally's for each person's transition matrix
+            for person_idx in range(self.npeople):
+                returnlist[person_idx][np.where(sampled_state[:,person_idx]==1)[0][0],np.where(next_state[:,person_idx]==1)[0][0]]+=1
+        
+        #now we need to return the actual txn matrices
+        #again, start by declaring a new state so we don't screw up the one we're currently working with.
+        temp_state = state(self.home_locations,lambda_=self.lambda_,ff=self.ff,quarantine=self.quarantine)
+        temp_state.locations = self.locations  #write in the locations as they're already known
+        temp_state.disease_states = self.disease_states
+        temp_state.exposures = temp_state.get_exposures()
+        
+        temp_state_pse = self.npeople*[1.]-np.exp(self.lambda_*(-temp_state.exposures))
+        actual_txn_matrices = []
+        for person_idx in range(self.npeople):
+            actual_txn_matrices.append(state_tmat(temp_state_pse[person_idx]))
+        
+        return [returnlist,actual_txn_matrices]
+        
+            
+    ####################
+    
+    
+    def get_observable_state(self):
+        """
+        returns an 11 x npeople array with 1's on potential disease states per each person. Requires action be specified by current state.
+        """
+        returnmat = np.zeros(shape=[11,self.npeople])
+        
+        for person_idx in range(self.npeople):
+            if np.where(self.disease_states[:,person_idx]==1.)[0][0] in [0,3,6,9] and self.action[person_idx]!= 1.:
+                returnmat[[0,3,6,9],person_idx]=1.
+            elif np.where(self.disease_states[:,person_idx]==1.)[0][0] in [1,4,7] and self.action[person_idx]!= 1.:
+                returnmat[[1,4,7],person_idx]=1.
+            elif np.where(self.disease_states[:,person_idx]==1.)[0][0] in [2,5,8] and self.action[person_idx]!= 1.:
+                returnmat[[2,5,8],person_idx]=1.
+            elif np.where(self.disease_states[:,person_idx]==1.)[0][0]==10:
+                returnmat[10,person_idx]=1.
+            elif self.action[person_idx]==1:
+                returnmat[:,person_idx] = self.disease_states[:,person_idx]
         return returnmat
     
+    def greedy_action(self,ntests):
+        """
+        generates a vector npeople long with ntests ones describing the people to test
+        follows a greedy algorithm; runs forecast and grabs the people most likely to be exposed or infected at time t+1
+        """
+        output_vector = np.zeros(shape=self.npeople)
+        
+        forecast_output = self.forecast()
+        exposure_score = np.sum(forecast_output[3:9,:],axis=0)
+        ranked_indices = np.flip(np.argsort(exposure_score))[:ntests]
+        
+        for test_idx in list(ranked_indices):
+            output_vector[test_idx]=1.
+        #print('greedy action vector: ',np.where(output_vector==1)[0])
+        return output_vector
+    
+    def random_action(self,ntests):
+        """
+        generates a vector npeople long with ntests ones describing the people to test
+        follows a random policy. people are selected without regard.
+        """
+        returnvec = np.zeros(self.npeople)
+        returnvec[:ntests]=1.
+        np.random.shuffle(returnvec)
+        #print('random action vector: ',np.where(returnvec==1)[0])
+        return returnvec
+        
     def reward(self):
         """
         returns reward associated with disease states at the end of the day after taking the action specified by the current state.
         """
-        return None
+        
+        nsusceptible = np.sum(self.disease_states[0:3,:])
+        nexposed = np.sum(self.disease_states[3:6,:])
+        ninfected = np.sum(self.disease_states[6:9,:])
+        ndead = np.sum(self.disease_states[10,:])
+        
+        test_coefficient = np.sum(self.test_counter)
+        
+        return nsusceptible/(np.sum(self.test_counter)+nexposed+ninfected+ndead)
+    
+    
     
     def flatten(self):
         """
         flattens locations,disease_states,?test_counter? for input into the nn
+        
+        #we need to gather the (partially-observable) disease state, agent locations, lambda_, test_counts into a fat vector
         """
-        return None
+        returnvec = np.concatenate([self.get_observable_state().flatten(),self.locations.flatten(),self.lambda_.flatten(),self.test_counter.flatten()])
+        return returnvec
     
         
 
