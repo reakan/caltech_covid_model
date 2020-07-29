@@ -1,4 +1,4 @@
-### CoViD Model (Updated 200714)
+### CoViD Model (Updated 200729)
 
 Just to recap; each agent "owns" two Markov chains. One determines location and is completely independent and the other one determines state and is dependant on the agent's current location. The "location" chain is fully-connected and updated every 5 minutes with movement biased towards a "home" location. The state chain is updated once daily from a calculated "cumulative exposure." The state chain is shown below.
 
