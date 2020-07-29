@@ -26,11 +26,22 @@ The second testing policy used state forecasting and selected individuals most l
 
 ![Greedy Testing Policy](RL/greedy_policy.png)
 
-Not much difference. I know the testing/quarantine code works because the plot two cells above had a horizontal line at the top. To test if the forecasting code worked, I adjusted the "sensitivity" (probability of contracting covid given exposure to an infected person) on the last 10 people in an environment. I then compared random and greedy testing policies with an allowed 10 tests per day. The number of times an individual was tested was recorded and the histograms are plotted below. Sensitivity among individuals is plotted as a red line.
+Not much difference. I know the testing/quarantine code works because the plot two cells above had a horizontal line at the top. 
+
+
+To test if the forecasting code worked, I adjusted the "sensitivity" (probability of contracting covid given exposure to an infected person) on the last 10 people in an environment. I then compared random and greedy testing policies with an allowed 10 tests per day. The number of times an individual was tested was recorded and the histograms are plotted below. Sensitivity among individuals is plotted as a red line.
 
 ![Greedy Testing History](RL/action_history.png)
 
-The histogram on the random testing side seems uniform, which matches expectations. The histogram on the right shows clear preference for the individuals with higher sensitivity. These things put together leads me to believe that the state forecasting code is working properly, it's just that a naive implementation of a greedy algorithm doesn't work better than random testing for some reason. Maybe I need to just select the people most likely to become infected and not exposed to filter susceptible individuals.
+The histogram on the random testing side seems uniform, which matches expectations. The histogram on the right shows clear preference for the individuals with higher sensitivity. 
+
+To test if there were any bugs in the Markov Chain code, I compared the final state frequencies of the Monte Carlo trials vs the transition probabilties in the transition matrix for each person. If there's nothing wrong, then I should be able to plot the transition probabilities on one axis and the observed state frequencies on the other axis and all datapoints should lie on a diagonal line, indicating a perfect match. 
+
+![Chain Debugging](RL/forecast.png)
+
+I don't see any problems here.
+
+These things put together leads me to believe that the state forecasting code is working properly, it's just that a naive implementation of a greedy algorithm doesn't work better than random testing for some reason. Maybe I need to just select the people most likely to become infected and not exposed to filter susceptible individuals.
 
 
 Are there any specific figures to generate to send to the Gates Foundation people?

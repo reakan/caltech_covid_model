@@ -523,7 +523,7 @@ class state:
         output_vector = np.zeros(shape=self.npeople)
         
         forecast_output = self.forecast()
-        exposure_score = np.sum(forecast_output[3:9,:],axis=0)
+        exposure_score = np.sum(forecast_output[6:9,:],axis=0)
         ranked_indices = np.flip(np.argsort(exposure_score))[:ntests]
         
         for test_idx in list(ranked_indices):
@@ -552,7 +552,6 @@ class state:
         ninfected = np.sum(self.disease_states[6:9,:])
         ndead = np.sum(self.disease_states[10,:])
         
-        test_coefficient = np.sum(self.test_counter)
         
         return nsusceptible/(np.sum(self.test_counter)+nexposed+ninfected+ndead)
     
